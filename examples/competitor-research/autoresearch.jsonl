@@ -1,0 +1,5 @@
+{"run": 0, "commit": null, "metric": 3, "delta": 0, "status": "baseline", "description": "V1 from web search: 4 competitors named, no pricing, no reviews. Rubric score 3/10.", "timestamp": "2026-04-21T09:00:00Z"}
+{"run": 1, "commit": "c1d2e3f", "metric": 5, "delta": 2, "status": "kept", "description": "Added pricing for all 4 competitors, found 5th. Rubric: pricing +2. Score 5/10.", "timestamp": "2026-04-21T09:15:00Z"}
+{"run": 2, "commit": "a4b5c6d", "metric": 7, "delta": 2, "status": "kept", "description": "Fetched App Store reviews for Jobber, Housecall Pro, ServiceTitan — extracted top complaints. Rubric: feature gaps +2. Score 7/10.", "timestamp": "2026-04-21T09:30:00Z"}
+{"run": 3, "commit": null, "metric": 7, "delta": 0, "status": "reverted", "description": "Added G2 quotes per competitor — score unchanged (7). Quotes added volume not specificity. Reverted.", "timestamp": "2026-04-21T09:45:00Z"}
+{"run": 4, "commit": "e7f8a9b", "metric": 8, "delta": 1, "status": "kept", "description": "Synthesized feature gap analysis into ranked top-5 list with evidence per feature. Rubric: top-5 ranking +1. Score 8/10. GOAL MET.", "timestamp": "2026-04-21T10:00:00Z"}

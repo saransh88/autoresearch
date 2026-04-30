@@ -1,14 +1,14 @@
 ---
 name: autoresearch
-version: 2.1.0
+version: 3.0.0
 description: |
-  Autonomous experiment loop for any engineering optimization goal on any stack.
-  Works on Android (Kotlin/Gradle), iOS (Swift/Xcodebuild), Web (React/JS/TS),
-  Backend (Ruby/Rails, Node, Python, Go), or any repo with a measurable metric.
-  User provides a goal in plain English — agent infers the stack, benchmark command,
-  and metric automatically. Use when: "autoresearch", "optimize X", "improve X",
-  "reduce X", "increase X", "fix failing tests", "speed up build", "improve coverage",
-  "reduce response time", "keep improving X overnight".
+  Autonomous experiment loop for any measurable goal on any stack or domain.
+  Classifies the goal automatically — engineering (code/build/test), research
+  (competitive/market/user), or docs (PRDs, personas, briefs, journey maps).
+  Invokes relevant installed skills per goal type. No flags needed.
+  Use when: "autoresearch", "optimize X", "improve X", "reduce X", "increase X",
+  "fix failing tests", "speed up build", "improve coverage", "research competitors",
+  "improve our PRD", "sharpen personas", "iterate on journey maps", "keep improving X overnight".
 allowed-tools:
   - Bash
   - Read
@@ -16,17 +16,20 @@ allowed-tools:
   - Write
   - Glob
   - Grep
+  - WebFetch
+  - WebSearch
+  - Agent
   - AskUserQuestion
   - ScheduleWakeup
 ---
 
 # /autoresearch — Autonomous Optimization Loop
 
-Give it a goal. It reads your repo, infers how to measure it, experiments overnight,
-and commits only what actually improves the metric.
+Give it a goal in plain English. It classifies the goal, picks the right approach,
+experiments iteratively, and keeps only what improves a measurable metric.
 
 Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
-Works on any stack. Stack is inferred — never hardcoded.
+Works on any stack, any domain. No flags. Goal classification is automatic.
 
 ---
 
@@ -38,31 +41,29 @@ When the user types `/autoresearch` (with any arguments), run this skill.
 
 | Invocation | Behavior |
 |---|---|
-| `/autoresearch <goal>` | Start or resume an optimization loop. Goal is plain English. |
+| `/autoresearch <goal>` | Start or resume a loop. Goal is plain English. |
 | `/autoresearch off` | Stop the loop, print session summary, preserve files |
 | `/autoresearch clear` | Wipe session files and start fresh |
 
-**Goal examples (any stack):**
+**Goal examples — any domain:**
 - `/autoresearch reduce Android build time`
 - `/autoresearch fix failing iOS unit tests`
 - `/autoresearch improve RSpec test coverage above 80%`
-- `/autoresearch reduce API p95 response time`
-- `/autoresearch speed up the React test suite`
-- `/autoresearch reduce bundle size`
-
-The goal tells the agent *what* to optimize. The agent figures out *how* to measure it
-by reading the repo.
+- `/autoresearch what are the top 5 features to build for the contractor segment`
+- `/autoresearch sharpen the contractor persona`
+- `/autoresearch improve the onboarding PRD`
+- `/autoresearch map the contractor job-to-be-done journey`
 
 ---
 
 ## Session Files
 
-Written to the **current working directory** (run from your repo root):
+Written to the **current working directory**:
 
 | File | Purpose |
 |---|---|
-| `autoresearch.md` | Living doc: goal, metric, stack notes, ideas backlog, history, dead ends |
-| `autoresearch.sh` | Benchmark script — outputs `METRIC name=value`. Never modified by agent. |
+| `autoresearch.md` | Living doc: goal, mode, metric, ideas backlog, history, dead ends |
+| `autoresearch.sh` | Benchmark script — outputs `METRIC name=value`. **Never modified by agent.** |
 | `autoresearch.jsonl` | Append-only experiment log. Survives restarts. |
 | `autoresearch.checks.sh` | *(optional, human-written)* Safety checks — blocks `keep` if they fail |
 
@@ -73,8 +74,6 @@ Written to the **current working directory** (run from your repo root):
 ### Phase 0: Parse arguments and load state
 
 ```bash
-command -v git >/dev/null 2>&1 || { echo "ERROR: git is required"; exit 1; }
-
 _JSONL="autoresearch.jsonl"
 _RUN_COUNT=0
 if [ -f "$_JSONL" ]; then
@@ -85,152 +84,217 @@ echo "AUTORESEARCH: $( [ -f autoresearch.md ] && echo 'resuming' || echo 'new se
 
 - If argument is `off` → go to **Phase 5**
 - If argument is `clear` → go to **Phase 6**
-- Otherwise the argument is the user's **goal** → go to **Phase 1** (new) or **Phase 2** (resume)
+- If `autoresearch.md` exists → go to **Phase 4 (Resume)**
+- Otherwise → go to **Phase 1 (Setup)**
 
 ---
 
-### Phase 1: Stack detection and session setup
+### Phase 1: Goal classification and session setup
 
-**Only runs when `autoresearch.md` does not exist.** If it exists, skip to Phase 2.
+**Only runs when `autoresearch.md` does not exist.**
 
-#### Step 1a — Detect the stack
+#### Step 1a — Classify the goal
 
-Read the repo to understand what you're working with. Look for these signals in order:
+Read the goal and classify it into one of three modes. Do NOT ask the user which mode — infer it:
+
+**Engineering mode** — the goal involves code, tests, builds, or runtime metrics.
+
+Signals: mentions of build, test, coverage, bundle, latency, response time, lint, compile,
+failing tests, flakiness, deployment, startup, memory usage, or names of engineering tools
+(Gradle, Jest, RSpec, Xcode, webpack, etc.)
+
+Examples:
+- "reduce Android build time"
+- "fix failing iOS unit tests"
+- "improve Jest coverage above 80%"
+- "speed up the React test suite"
+- "reduce bundle size"
+
+**Research mode** — the goal involves gathering, synthesizing, or scoring external information
+(competitors, market, users, features, positioning).
+
+Signals: mentions of competitors, market, features to build, top N list, user research,
+customer segments, pricing, sentiment, interviews, survey results, or phrases like
+"what should we build", "who are our users", "how do competitors".
+
+Examples:
+- "what are the top 5 features to build for the contractor segment"
+- "competitive analysis for contractor invoicing"
+- "map the contractor customer segment"
+- "what do competitors charge for job management"
+
+**Docs mode** — the goal involves iterating on a text artifact: a PRD, persona, brief,
+journey map, strategy doc, or any human-written document already in the repo.
+
+Signals: mentions of persona, PRD, brief, journey map, strategy, document, spec, or
+an existing file by name. Goal uses words like "sharpen", "improve", "iterate", "refine".
+
+Examples:
+- "sharpen the contractor persona"
+- "improve the onboarding PRD"
+- "iterate on the journey map for first invoice"
+- "make the GTM brief more specific"
+
+**If genuinely ambiguous after reading the goal:** ask once — "Is this about improving code/tests, researching external information, or iterating on a document?"
+
+#### Step 1b — Detect installed skills relevant to this goal
+
+Check which skills are installed. Installed skills live at `~/.claude/skills/` or are
+loaded as plugins. The available skills in this environment include:
 
 ```bash
-# Root-level indicators
+ls ~/.claude/skills/ 2>/dev/null
+ls ~/.claude/plugins/cache/ 2>/dev/null | head -20
+```
+
+**Skills to invoke by mode:**
+
+| Mode | Skills to check for and invoke |
+|---|---|
+| Engineering | `investigate` (for debugging failing tests), `review` (for code quality checks) |
+| Research | `office-hours` (for strategic framing), any installed `pm-skills` plugin skills |
+| Docs | `office-hours` (for doc quality framing) |
+
+**pm-skills** (from `phuryn/pm-skills` or similar): if installed, these are available per domain:
+- Competitive research: `competitor-analysis`, `market-segments`
+- User research: `user-personas`, `interview-script`, `summarize-interview`, `customer-journey-map`
+- Strategy: `prd-writer`, `jobs-to-be-done`, `gtm-strategy`
+- Sentiment: `sentiment-analysis`
+
+**How to use installed skills in the loop:**
+- In Research mode: invoke the relevant pm-skill to generate a structured v1 artifact, then use autoresearch's loop to iterate and score it against a rubric
+- In Docs mode: invoke pm-skills to enrich a draft, then score against the rubric
+- In Engineering mode: invoke `investigate` if the root cause of a regression is unclear
+
+Do NOT require pm-skills to be installed — if they're absent, proceed without them.
+
+#### Step 1c — Define the metric and rubric
+
+**Engineering mode** → use a script-extractable number (see Step 1d for templates)
+
+**Research mode** → define a rubric score (0–10) based on coverage of required dimensions.
+The rubric must be specific to the goal. Example for competitive analysis:
+```
+Rubric (score 0–10):
+- Covers ≥5 named competitors: +2
+- Includes pricing for each: +2
+- Includes top 3 differentiators per competitor: +2
+- Includes customer review sentiment: +2
+- Identifies top feature gaps vs our product: +2
+```
+Score is computed by the agent reading the artifact and self-evaluating against the rubric.
+The rubric lives in `autoresearch.md` under `## Rubric`.
+
+**Docs mode** → define a rubric score (0–10) specific to the document type. Example for persona:
+```
+Rubric (score 0–10):
+- Has a named, specific segment (not "SMB"): +1
+- Includes 3+ named pain points with evidence: +2
+- Includes behavioral patterns (how they work today): +2
+- Includes a direct quote or verbatim: +1
+- Includes decision criteria for buying: +2
+- Specifies segment size or frequency: +1
+- Does not use vague adjectives without evidence: +1
+```
+
+Write the rubric to `autoresearch.md` under `## Rubric`. The rubric is fixed for the session —
+do not change it between iterations (that would invalidate comparisons).
+
+#### Step 1d — Write autoresearch.sh
+
+**Engineering mode only** — write a real executable script.
+
+The script must:
+1. Run from the repo root
+2. Execute the benchmark command
+3. Extract or compute the metric value
+4. Print exactly one line: `METRIC <name>=<value>` (plain number, no units)
+
+**Detect the stack first:**
+
+```bash
 ls -la
 cat package.json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('scripts',{}))" 2>/dev/null
 ls build.gradle build.gradle.kts settings.gradle Gemfile Podfile Package.swift pyproject.toml go.mod Cargo.toml 2>/dev/null
-ls .github/workflows/ .circleci/ 2>/dev/null
-```
-
-Then read the CI config — it's the most reliable source of truth for how to run things:
-
-```bash
-# GitHub Actions
 cat .github/workflows/*.yml 2>/dev/null | head -200
-# CircleCI
 cat .circleci/config.yml 2>/dev/null | head -200
 ```
 
-The CI config tells you the canonical command teams actually use. Prefer it over guessing.
+The CI config is ground truth — use the command teams actually run, not guesses.
 
 **Stack detection matrix:**
 
 | Signal found | Stack | Likely test command | Likely build command |
 |---|---|---|---|
-| `build.gradle` / `build.gradle.kts` | Android/Kotlin | `./gradlew test` or `./gradlew connectedAndroidTest` | `./gradlew assembleDebug` |
-| `Package.swift` or `*.xcworkspace` / `*.xcodeproj` | iOS/Swift | `xcodebuild test -scheme <X>` | `xcodebuild build -scheme <X>` |
-| `Gemfile` + `spec/` or `test/` | Ruby/Rails | `bundle exec rspec` or `bundle exec rake test` | N/A (or `bundle exec rake assets:precompile`) |
-| `package.json` with jest/vitest | JS/TS (Web/Node) | `npm test` / `yarn test` / `npx vitest run` | `npm run build` / `yarn build` |
-| `pyproject.toml` or `setup.py` | Python | `pytest` or `python -m pytest` | N/A |
+| `build.gradle` / `build.gradle.kts` | Android/Kotlin | `./gradlew test` | `./gradlew assembleDebug` |
+| `Package.swift` / `*.xcworkspace` | iOS/Swift | `xcodebuild test -scheme <X>` | `xcodebuild build -scheme <X>` |
+| `Gemfile` + `spec/` | Ruby/Rails | `bundle exec rspec` | `bundle exec rake assets:precompile` |
+| `package.json` with jest/vitest | JS/TS | `npm test` / `yarn test` | `npm run build` / `yarn build` |
+| `pyproject.toml` / `setup.py` | Python | `pytest` | N/A |
 | `go.mod` | Go | `go test ./...` | `go build ./...` |
 | `Cargo.toml` | Rust | `cargo test` | `cargo build` |
 
-Always verify the command exists before writing `autoresearch.sh` — run it mentally against
-the directory structure.
+**Templates by metric type:**
 
-#### Step 1b — Map the goal to a metric
-
-The user's goal is plain English. Map it to a concrete, extractable metric:
-
-| Goal keywords | Metric | Direction | How to extract |
-|---|---|---|---|
-| "build time", "compile time", "speed up build" | `build_ms` | ↓ lower | Time the build command |
-| "test speed", "test time", "run faster", "slow tests" | `test_ms` | ↓ lower | Time the test command |
-| "failing tests", "fix tests", "broken tests", "flaky" | `failing_tests` | ↓ lower | Parse test runner output for failure count |
-| "coverage", "test coverage" | `coverage_pct` | ↑ higher | Parse coverage report for % |
-| "response time", "API latency", "p95", "p99" | `p95_ms` | ↓ lower | Run load test or curl loop, parse result |
-| "bundle size", "asset size", "JS size" | `bundle_kb` | ↓ lower | `du -sk dist/` or build output |
-| "lint errors", "linting" | `lint_errors` | ↓ lower | Parse linter output for error count |
-| "memory", "memory usage" | `memory_mb` | ↓ lower | Parse runtime output |
-| "startup time", "boot time", "cold start" | `startup_ms` | ↓ lower | Time to first ready signal |
-
-If the goal doesn't map cleanly, ask once:
-> "What should I measure to know we're making progress? What command produces a number that goes up or down?"
-
-#### Step 1c — Write autoresearch.sh
-
-Write a benchmark script that is **specific to this repo and stack**. The script must:
-1. Run from the repo root
-2. Execute the benchmark command
-3. Extract or compute the metric value
-4. Print exactly one line: `METRIC <name>=<value>` where value is a plain number
-
-**Templates by goal type:**
-
-**Build time / test time:**
+Build time / test time:
 ```bash
 #!/bin/bash
 # autoresearch benchmark — do not modify
 set -uo pipefail
 START=$(date +%s%N)
-<the exact command from CI config or package.json> 2>&1
+<exact command from CI config> 2>&1
 END=$(date +%s%N)
 echo "METRIC <metric_name>=$(( (END - START) / 1000000 ))"
 ```
 
-**Failing tests — generic (works for any runner):**
+Failing tests:
 ```bash
 #!/bin/bash
-# autoresearch benchmark — do not modify — counts failing tests
+# autoresearch benchmark — do not modify
 set -uo pipefail
 OUTPUT=$(<test command> 2>&1 || true)
 printf '%s\n' "$OUTPUT"
-
-# Extract failure count — adapt pattern to actual runner output
 COUNT=$(printf '%s\n' "$OUTPUT" | grep -oE '[0-9]+ (failure|failed|error)' | head -1 | grep -oE '^[0-9]+' || echo "0")
 echo "METRIC failing_tests=$COUNT"
 ```
 
-**Adapt the failure grep pattern to the actual test runner:**
-- RSpec: `grep -oE '[0-9]+ failure'`
-- Gradle/JUnit: `grep -oE 'Tests run: [0-9]+, Failures: [0-9]+' | grep -oE 'Failures: [0-9]+' | grep -oE '[0-9]+'`
-- Jest/Vitest: `grep -oE '[0-9]+ failed'`
-- Swift/XCTest: `grep -oE 'with [0-9]+ failure'`
-- pytest: `grep -oE '[0-9]+ failed'`
-- Go test: `grep -c '^--- FAIL'`
-
-**Coverage (generic):**
+Coverage:
 ```bash
 #!/bin/bash
-# autoresearch benchmark — do not modify — measures coverage %
+# autoresearch benchmark — do not modify
 set -uo pipefail
 OUTPUT=$(<test-with-coverage command> 2>&1 || true)
 printf '%s\n' "$OUTPUT"
-
-# Extract coverage % — adapt to runner
 PCT=$(printf '%s\n' "$OUTPUT" | grep -oE '[0-9]+(\.[0-9]+)?%' | tail -1 | tr -d '%' || echo "0")
 echo "METRIC coverage_pct=$PCT"
 ```
 
-**API response time:**
+Bundle size:
 ```bash
 #!/bin/bash
-# autoresearch benchmark — do not modify — measures p95 response time
-set -uo pipefail
-# Run N requests and compute p95
-TIMES=()
-for i in $(seq 1 20); do
-  MS=$(curl -s -o /dev/null -w "%{time_total}" <endpoint_url> | awk '{printf "%.0f", $1*1000}')
-  TIMES+=($MS)
-done
-P95=$(printf '%s\n' "${TIMES[@]}" | sort -n | awk 'BEGIN{c=0} {a[c++]=$1} END{print a[int(c*0.95)]}')
-echo "METRIC p95_ms=$P95"
-```
-
-**Bundle size:**
-```bash
-#!/bin/bash
-# autoresearch benchmark — do not modify — measures bundle size
+# autoresearch benchmark — do not modify
 set -uo pipefail
 <build command> 2>&1
 KB=$(du -sk <dist directory> | cut -f1)
 echo "METRIC bundle_kb=$KB"
 ```
 
-#### Step 1d — Write autoresearch.md
+**Research and Docs modes** — write a scoring script instead:
+
+```bash
+#!/bin/bash
+# autoresearch benchmark — do not modify — evaluates artifact against rubric
+set -uo pipefail
+# Agent reads the artifact file and scores it against the rubric in autoresearch.md
+# Score is printed as METRIC rubric_score=<0-10>
+echo "METRIC rubric_score=__AGENT_SCORES_THIS__"
+```
+
+For research and docs modes, `autoresearch.sh` is a placeholder. The actual scoring
+happens when the agent reads the artifact and self-evaluates against the rubric in
+`autoresearch.md`. The agent then prints the score as if the script ran it.
+
+#### Step 1e — Write autoresearch.md
 
 ```markdown
 # autoresearch session
@@ -238,19 +302,35 @@ echo "METRIC bundle_kb=$KB"
 ## Goal
 <user's plain-English goal>
 
-## Stack
-<detected stack: e.g. "Android / Kotlin / Gradle" or "Ruby on Rails / RSpec">
+## Mode
+<engineering | research | docs>
+
+## Stack / Domain
+<for engineering: detected stack e.g. "Android / Kotlin / Gradle">
+<for research: the topic domain e.g. "Contractor segment / competitive analysis">
+<for docs: the artifact type e.g. "Contractor persona / user research doc">
 
 ## Metric
-- Name: <metric_name>
+- Name: <metric_name or "rubric_score">
 - Direction: <lower|higher> is better
-- Benchmark command: `<the command in autoresearch.sh>`
+- Benchmark: <command or "agent self-evaluation against rubric">
+
+## Rubric
+<for research and docs modes — the scoring rubric defined in Step 1c>
+<for engineering — omit this section>
 
 ## Files in scope
-<specific list — start conservative, expand as needed>
+<for engineering: specific source/test/config files>
+<for research: web sources, competitor URLs, research docs to synthesize>
+<for docs: the specific document file to iterate on>
 
 ## Ideas backlog
-<generated from Step 1e>
+<generated from Step 1f>
+
+## State
+- consecutive_no_improvement: 0
+- best_metric: <baseline value>
+- target: <parsed from goal, or "none">
 
 ## History
 <!-- Agent appends after each run: Run N — what was tried — result -->
@@ -259,75 +339,76 @@ echo "METRIC bundle_kb=$KB"
 <!-- Agent notes here: what failed and why -->
 ```
 
-#### Step 1e — Generate a stack-specific ideas backlog
+#### Step 1f — Generate mode-specific ideas backlog
 
-Read the repo's config files, CI config, and any existing relevant files before writing ideas.
-Ideas must be **specific to what you found in this repo** — not generic advice.
+**Engineering mode** — read the repo's config files and CI config, generate grounded ideas:
 
-For each idea, note:
-- The specific file to change
-- The specific property/value to change
-- Why it's expected to help
+Each idea must reference a specific file, property, and expected impact.
+No generic advice — only ideas grounded in what exists in this repo.
 
-**Ideas by goal type and stack:**
-
-**Android build time (`build.gradle` / `build.gradle.kts`):**
-- Enable Gradle build cache: `org.gradle.caching=true` in `gradle.properties`
+Android build time ideas (grounded in `gradle.properties` and `build.gradle`):
+- Enable Gradle build cache: `org.gradle.caching=true`
 - Enable parallel builds: `org.gradle.parallel=true`
 - Enable configuration cache: `org.gradle.configuration-cache=true`
 - Increase heap: `org.gradle.jvmargs=-Xmx4g -XX:+UseParallelGC`
-- Check for `clean` in CI command — remove it if present (invalidates cache every run)
-- Disable unused Gradle modules/tasks
-- Enable incremental compilation if not set
+- Remove `clean` from CI command if present
 
-**iOS build time (`Xcodebuild`):**
-- Enable parallel builds in scheme settings
-- Reduce `SWIFT_COMPILATION_MODE` from `wholemodule` to `incremental` for debug
-- Enable build caching with `ccache` or `xcodebuild -derived-data-path`
-- Disable unused targets in the scheme
-- Check for unnecessary copy phases
+JS/TS test speed ideas:
+- Set `--maxWorkers=50%`
+- Switch transform from Babel to SWC/esbuild
+- Mock heavy imports at module level
 
-**Ruby/RSpec test speed:**
-- Add `--fail-fast` for local runs
-- Use `DatabaseCleaner` strategy: `truncation` → `transaction` (faster rollback)
-- Parallelize with `parallel_tests` gem
-- Use `FactoryBot.build_stubbed` instead of `create` where persistence not needed
-- Reduce `let` chains that trigger unnecessary DB queries
-- Profile slow specs: `bundle exec rspec --profile 10`
+Test coverage ideas:
+- Find files with 0% coverage, add smoke tests
+- Add error/edge case branches
+- Use coverage report to rank highest-ROI files
 
-**JS/TS test speed (Jest/Vitest):**
-- Set `--maxWorkers=50%` (default can oversaturate CPU)
-- Use `--testPathPattern` to scope locally
-- Switch `transform` from Babel to SWC/esbuild (10-20x faster transforms)
-- Mock heavy imports at module level with `jest.mock()`
-- Disable coverage during speed optimization runs
+**Research mode** — generate a list of research angles to investigate:
 
-**Go test speed:**
-- Add `-parallel N` flag
-- Use `-count=1` to disable test caching (for accurate benchmarks), or remove `-count=1` to enable it
-- Use `t.Parallel()` in test functions
-- Profile with `-cpuprofile` to find bottlenecks
+Each idea = one specific question to answer or one source to investigate:
+1. Name and describe each direct competitor found via web search
+2. Compare pricing models (per-seat, per-job, flat monthly)
+3. Extract top-rated features from competitor app store reviews
+4. Find common complaints in competitor reviews (feature gaps)
+5. Identify which competitors target our specific segment
+6. Check if pm-skills `competitor-analysis` skill is installed → invoke it for v1
 
-**API response time (any backend):**
-- Add database query indexes for slow endpoints
-- Enable response caching (Redis, Memcached) for read-heavy routes
-- Reduce N+1 queries (use eager loading)
-- Move slow operations to background jobs
-- Enable HTTP keep-alive / connection pooling
+If pm-skills are installed, the first idea is always: invoke the relevant pm-skill to
+generate a structured v1 artifact, then score it against the rubric.
 
-**Test coverage:**
-- Find files with 0% coverage and add basic smoke tests
-- Add tests for uncovered error/edge case branches
-- Use coverage report to identify the highest-ROI files (most uncovered lines)
+**Docs mode** — generate a list of specific improvements to make to the document:
 
-#### Step 1f — Run baseline
+Each idea = one targeted edit with a hypothesis about which rubric dimension it improves:
+1. Add segment size estimate (improves "specifies segment size" rubric criterion)
+2. Add a direct quote from user research (improves "includes verbatim quote" criterion)
+3. Replace vague adjectives with specific behaviors (improves "behavioral patterns" criterion)
+4. Add decision criteria section (improves "decision criteria for buying" criterion)
 
+If pm-skills are installed, the first idea is: invoke the relevant pm-skill to enrich
+the draft (e.g. `user-personas`, `customer-journey-map`), then re-score.
+
+#### Step 1g — Run baseline
+
+**Engineering mode:**
 ```bash
 chmod +x autoresearch.sh
 bash autoresearch.sh
 ```
+Extract `METRIC name=value`. Log run #0 as `"status": "baseline"`.
 
-Log run #0 with `"status": "baseline"` to `autoresearch.jsonl`. Then continue to Phase 2.
+**Research mode:**
+- If pm-skills `competitor-analysis` or equivalent is installed: invoke it now to produce v1
+- Otherwise: run a web search to gather raw data, write a v1 artifact to a file
+- Score the v1 artifact against the rubric
+- Log run #0 as `"status": "baseline"` with the rubric score
+
+**Docs mode:**
+- Read the existing document
+- Score it against the rubric
+- Log run #0 as `"status": "baseline"` with the rubric score
+- If no document exists yet and pm-skills are available, invoke the relevant skill to create v1 first
+
+Then continue to Phase 2.
 
 ---
 
@@ -338,67 +419,75 @@ The autonomous core. Runs until a stopping condition is met or the user types `/
 #### Stopping conditions (checked at the start of each iteration)
 
 **1. Goal achieved**
-Parse the goal for a numeric target (e.g. "above 80%", "below 500ms", "zero failures").
-If present, compare against the current best metric. If the target is met → go to **Phase 5 (Off)** automatically, printing:
-```
-GOAL ACHIEVED: <metric> = <value> (target was <target>). Stopping.
-```
+Parse the goal for a numeric target ("above 80%", "below 500ms", "zero failures", "score 8+").
+If met → go to Phase 5, printing: `GOAL ACHIEVED: <metric> = <value>. Stopping.`
 
-**2. No improvement for N consecutive runs (convergence)**
-Default N = 5. After each run, count how many consecutive runs had `delta <= 0`.
-If that count reaches N → go to **Phase 5** automatically, printing:
-```
-CONVERGED: No improvement in last 5 runs. Best <metric>: <value>. Stopping.
-```
+**2. No improvement for 5 consecutive runs**
+If `consecutive_no_improvement >= 5` → go to Phase 5, printing:
+`CONVERGED: No improvement in last 5 runs. Best: <value>. Stopping.`
 
 **3. Backlog exhausted**
-After picking an idea in Step 2, if there are no untried ideas left in the backlog (all moved to History or Dead ends) → go to **Phase 5** automatically, printing:
-```
-BACKLOG EXHAUSTED: All ideas tried. Best <metric>: <value>. Stopping.
-```
-
-Track consecutive-no-improvement count in `autoresearch.md` under a `## State` section updated each iteration:
-```markdown
-## State
-- consecutive_no_improvement: 0
-- best_metric: <value>
-- target: <parsed from goal, or "none">
-```
+If no untried ideas remain → go to Phase 5, printing:
+`BACKLOG EXHAUSTED: All ideas tried. Best: <value>. Stopping.`
 
 **Each iteration:**
 
 **Step 1 — Load context**
-Read `autoresearch.md` (goal, metric, backlog, history, dead ends) and the last 10 lines
-of `autoresearch.jsonl`. Compute: baseline, best-so-far, run count, confidence.
+Read `autoresearch.md` (goal, mode, metric, rubric, backlog, history, dead ends) and
+last 10 lines of `autoresearch.jsonl`. Compute: baseline, best-so-far, run count.
 
 **Step 2 — Pick ONE idea**
-Choose the single highest-confidence untried idea from the backlog:
-- Smallest possible change (not a refactor)
-- Clear causal link to the metric
-- Only touches files listed in "Files in scope"
-- Not tried before (check History and Dead ends)
+Choose the single highest-confidence untried idea:
+- Smallest possible change
+- Clear causal link to the metric or a specific rubric criterion
+- Only touches files in scope
+- Not tried before
 
 **Step 3 — Apply it**
-Make the minimum viable diff. If editing a config file, change one property.
 
-**Step 4 — Run the benchmark**
+**Engineering mode:** make the minimum viable diff to the target file.
+
+**Research mode:** run a web search or fetch a specific URL, synthesize findings into
+the research artifact. One new angle per iteration (one new competitor, one new dimension,
+one new data source). If a relevant pm-skill is installed, invoke it for this iteration's
+focus area rather than doing raw search.
+
+**Docs mode:** make one targeted edit to the document. One paragraph, one section, one
+added piece of evidence. If a relevant pm-skill is installed that can enrich this specific
+dimension (e.g. `user-personas` to add behavioral patterns), invoke it and incorporate output.
+
+**Step 4 — Score / benchmark**
+
+**Engineering mode:**
 ```bash
 bash autoresearch.sh 2>&1
 ```
-Extract the number from `METRIC name=<value>`.
+Extract number from `METRIC name=<value>`.
+
+**Research and Docs modes:**
+Read the current version of the artifact. Evaluate it against each rubric criterion in
+`autoresearch.md`. Assign a score for each criterion and sum them. Print:
+```
+Rubric evaluation:
+  Covers ≥5 named competitors: 2/2 ✓
+  Includes pricing: 1/2 (missing 2 competitors)
+  ...
+  Total: 7/10
+METRIC rubric_score=7
+```
 
 **Step 5 — Run checks (if present)**
 ```bash
 [ -f autoresearch.checks.sh ] && bash autoresearch.checks.sh 2>&1
 ```
-If checks fail → treat as regression regardless of metric.
+If checks fail → treat as regression.
 
 **Step 6 — Keep or revert**
 
 For "lower is better": `delta = baseline - new_value`
 For "higher is better": `delta = new_value - baseline`
 
-**Improved (delta > 0) AND checks passed:**
+**Improved (delta > 0):**
 ```bash
 git add <changed files>
 git commit -m "autoresearch: <description> [<metric>: <old> → <new>]"
@@ -408,6 +497,9 @@ git commit -m "autoresearch: <description> [<metric>: <old> → <new>]"
 ```bash
 git checkout -- <changed files>
 ```
+
+For research/docs modes: if the artifact file got worse or flat, restore the previous
+version from git.
 
 **Step 7 — Log**
 ```json
@@ -419,30 +511,23 @@ Move tried idea to History. Add dead end note if reverted. Add new ideas if disc
 
 **Step 9 — Print progress**
 ```
-[Run N] <metric>: <prev> → <new> (<±pct>%) — <kept|reverted> | Best: <best> | Conf: <score>x
+[Run N] <metric>: <prev> → <new> (<±delta>) — <kept|reverted> | Best: <best>
 ```
-Confidence (after 3+ runs): `best_delta / stddev(all_metrics)`.
-≥2.0× = likely real · 1–2× = marginal · <1× = within noise.
 
-Update the `## State` block in `autoresearch.md`:
+Update `## State` block:
 - Increment `consecutive_no_improvement` if delta ≤ 0, reset to 0 if delta > 0
-- Update `best_metric` if this run improved it
+- Update `best_metric` if improved
 
 **Step 10 — Check stopping conditions, then reschedule**
 
-Before scheduling the next run, evaluate all three stopping conditions in order:
-1. If a numeric target was parsed and `best_metric` meets it → go to **Phase 5**
-2. If `consecutive_no_improvement >= 5` → go to **Phase 5**
-3. If no untried ideas remain in the backlog → go to **Phase 5**
-
-If none apply:
+Evaluate stopping conditions in order. If none apply:
 ```
 ScheduleWakeup(60)
 ```
 
 ---
 
-### Phase 3: Failing tests mode
+### Phase 3: Failing tests mode (engineering sub-mode)
 
 When the goal is about fixing failing/broken tests, each iteration targets ONE test:
 
@@ -450,14 +535,13 @@ When the goal is about fixing failing/broken tests, each iteration targets ONE t
 2. Pick the first failing test (or most frequently failing)
 3. Read the test file to understand the assertion
 4. Read the source file / fixture it depends on
-5. Apply the minimal fix — wrong expected value, drifted selector, missing await,
-   stale fixture data, wrong mock, import path change
+5. Apply the minimal fix (wrong expected value, stale mock, missing await, drifted selector)
 6. Re-run benchmark → check if `failing_tests` decreased
 7. If yes → `git commit`. If no → `git checkout --` and mark as dead end.
 
-**Parser patterns by runner (adapt to what you find in the repo):**
+**Parser patterns by runner:**
 - RSpec: lines matching `rspec ./<path>:<line>`
-- Gradle/JUnit: lines matching `FAILED` or `<testcase ... status="failed">`
+- Gradle/JUnit: lines matching `FAILED`
 - Jest/Vitest: lines matching `✕` or `FAIL <path>`
 - XCTest: lines matching `Test Case '...' failed`
 - pytest: lines matching `FAILED <path>::<name>`
@@ -469,7 +553,7 @@ When the goal is about fixing failing/broken tests, each iteration targets ONE t
 
 If `autoresearch.md` exists when skill is invoked:
 1. Read `autoresearch.md` and `autoresearch.jsonl` to restore context
-2. Print: `Resuming: <N> runs completed, best <metric>: <value>`
+2. Print: `Resuming: <N> runs | mode: <mode> | best <metric>: <value>`
 3. Continue from next untried idea → Phase 2
 
 ---
@@ -487,10 +571,9 @@ kept = [l for l in lines if l.get('status')=='kept']
 reverted = [l for l in lines if l.get('status')=='reverted']
 print(f'Runs: {len(lines)-1} | Kept: {len(kept)} | Reverted: {len(reverted)}')
 if baseline and kept:
-    direction = 1  # change if metric is higher-is-better
-    best = max(kept, key=lambda x: direction * x.get('delta', 0))
-    pct = abs(best['delta']) / baseline['metric'] * 100
-    print(f\"Baseline: {baseline['metric']} → Best: {best['metric']} ({pct:.1f}% improvement)\")
+    best = max(kept, key=lambda x: x.get('delta', 0))
+    pct = abs(best['delta']) / max(baseline['metric'], 1) * 100
+    print(f\"Baseline: {baseline['metric']} -> Best: {best['metric']} ({pct:.1f}% improvement)\")
 "
 ```
 3. Say: `Files preserved. Run /autoresearch to resume.`
@@ -511,9 +594,11 @@ if baseline and kept:
 3. **Always revert on regression.** Never leave the repo dirty.
 4. **Only edit files in scope.** If a file not in scope is needed, note it in dead ends.
 5. **Log everything** — kept and reverted. History is the value.
-6. **Infer, don't ask.** Read CI config, package.json, build files before asking the user anything.
-   Use `AskUserQuestion` only when a critical value is genuinely ambiguous after reading the repo.
-7. **The CI config is ground truth.** The command teams actually use is in `.github/workflows/` or `.circleci/config.yml`. Use that — not guesses.
-8. **Ideas must be grounded.** Every idea in the backlog must reference a specific file and property found by reading the repo. No generic advice.
-9. **Fix one test at a time** in failing-tests mode. Don't batch fixes across multiple tests.
-10. **Confidence is advisory.** Never stop an improving loop because of low confidence — report it.
+6. **Infer, don't ask.** Read CI config, package.json, build files, and the goal itself before asking anything.
+   Use `AskUserQuestion` only when a critical value is genuinely ambiguous after reading the context.
+7. **The CI config is ground truth** for engineering mode. Use the command teams actually run.
+8. **Ideas must be grounded.** For engineering: reference a specific file and property. For research: reference a specific source or angle. For docs: reference a specific rubric criterion.
+9. **Fix one test at a time** in failing-tests mode.
+10. **Confidence is advisory.** Never stop an improving loop because of low confidence.
+11. **Invoke skills, don't re-invent them.** If a relevant skill (investigate, pm-skills, office-hours) is installed and covers this iteration's focus area, invoke it rather than doing the work manually.
+12. **Classify automatically.** Never ask the user to pass a flag or specify the mode. Read the goal and classify.

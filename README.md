@@ -1,8 +1,8 @@
 # /autoresearch
 
-> Autonomous optimization loop for Claude Code. Give it a goal — it experiments overnight and commits only what works.
+> Autonomous optimization loop for Claude Code. Give it a goal — it classifies the type of work, experiments iteratively, and commits only what improves a measurable metric.
 
-Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works on any stack. You write one sentence. The agent handles the rest.
+Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works on any stack, any domain. No flags. Goal classification is automatic.
 
 ---
 
@@ -16,7 +16,7 @@ Most optimization work follows the same loop:
 4. Keep it or undo it
 5. Repeat
 
-`/autoresearch` automates that loop. It reads your repo, figures out how to measure your goal, and runs experiments autonomously — committing improvements, reverting regressions, logging everything. You come back to a clean git history and a full audit trail.
+`/autoresearch` automates that loop. The agent reads your goal, classifies the type of work, picks the right approach, and runs experiments autonomously — committing improvements, reverting regressions, logging everything.
 
 ---
 
@@ -28,7 +28,7 @@ curl -o ~/.claude/skills/autoresearch/SKILL.md \
   https://raw.githubusercontent.com/saransh88/autoresearch/main/SKILL.md
 ```
 
-Or clone and symlink:
+Or clone and copy:
 
 ```bash
 git clone https://github.com/saransh88/autoresearch.git
@@ -52,7 +52,6 @@ From your repo root in Claude Code:
 ```
 /autoresearch off
 ```
-Prints a session summary. Files are preserved. Run again to resume.
 
 **Reset everything:**
 ```
@@ -61,22 +60,50 @@ Prints a session summary. Files are preserved. Run again to resume.
 
 ---
 
+## How it classifies your goal
+
+No flags needed. The agent reads your goal and picks one of three modes:
+
+| Mode | What it works on | How it measures progress |
+|------|-----------------|--------------------------|
+| **Engineering** | Code, tests, builds, configs | Script-extractable number (`coverage_pct`, `build_ms`, `failing_tests`, `bundle_kb`) |
+| **Research** | Competitors, market, features to build, user segments | Rubric score (0–10) against coverage of required dimensions |
+| **Docs** | Personas, PRDs, journey maps, briefs, strategy docs | Rubric score (0–10) against specificity and evidence criteria |
+
+The agent decides which mode applies. You never specify it.
+
+---
+
 ## Goal examples
+
+**Engineering:**
 
 | Stack | Goal |
 |-------|------|
 | React / Jest | `/autoresearch improve test coverage above 80%` |
-| Any (mutation) | `/autoresearch improve Stryker mutation score above 75% on src/modules/` |
+| Any (mutation) | `/autoresearch improve Stryker mutation score above 75%` |
 | Android / Gradle | `/autoresearch reduce assembleDebug build time below 3 minutes` |
 | iOS / Xcode | `/autoresearch fix all failing XCTest unit tests` |
 | Ruby / RSpec | `/autoresearch improve RSpec coverage above 85% on app/services/` |
-| Go | `/autoresearch fix all failing go test ./...` |
-| Any CI | `/autoresearch reduce CI pipeline time below 8 minutes` |
 | Any frontend | `/autoresearch reduce JS bundle size below 400kb` |
 | Any backend | `/autoresearch reduce API p95 response time below 150ms` |
-| TypeScript | `/autoresearch reduce TypeScript compile errors to zero` |
 
-The goal tells the agent **what** to optimize. It figures out **how** to measure it by reading your repo — CI config, `package.json`, `build.gradle`, `Gemfile`, whatever is there.
+**Research:**
+
+| Domain | Goal |
+|--------|------|
+| Competitive | `/autoresearch what are the top 5 features to build for the contractor segment` |
+| Market | `/autoresearch competitive analysis for contractor invoicing tools` |
+| User segment | `/autoresearch map the contractor customer segment` |
+
+**Docs:**
+
+| Artifact | Goal |
+|----------|------|
+| Persona | `/autoresearch sharpen the contractor persona` |
+| PRD | `/autoresearch improve the onboarding PRD` |
+| Journey map | `/autoresearch iterate on the journey map for first invoice` |
+| Brief | `/autoresearch make the GTM brief more specific` |
 
 ---
 
@@ -84,21 +111,21 @@ The goal tells the agent **what** to optimize. It figures out **how** to measure
 
 ### Phase 1 — Setup (first run only)
 
-The agent reads your repo and infers:
-- **Stack** — from `package.json`, `build.gradle`, `Gemfile`, `go.mod`, etc.
-- **Benchmark command** — from your CI config (`.github/workflows/`, `.circleci/`) — the command your team actually runs
-- **Metric** — maps your goal to a number: `coverage_pct`, `build_ms`, `failing_tests`, `bundle_kb`, etc.
-- **Files in scope** — starts conservative, expands as needed
+The agent reads the goal and classifies it. Then:
 
-Then writes three files in your repo root:
+**Engineering mode** — reads your repo and infers:
+- Stack (from `package.json`, `build.gradle`, `Gemfile`, `go.mod`, CI config, etc.)
+- Benchmark command (from CI config — the command your team actually runs)
+- Metric (maps goal to a number)
 
-| File | Purpose |
-|------|---------|
-| `autoresearch.md` | Living doc — goal, metric, ideas backlog, history, dead ends |
-| `autoresearch.sh` | Benchmark script. Outputs `METRIC name=value`. Never modified by the agent. |
-| `autoresearch.jsonl` | Append-only experiment log. Survives restarts. |
+Then writes `autoresearch.sh` — the benchmark script that outputs `METRIC name=value`.
 
-Runs the baseline and logs it as run `#0`.
+**Research and Docs modes** — defines a rubric instead of a script:
+- Specific to the goal (competitive analysis rubric ≠ persona rubric)
+- Fixed for the session — doesn't change between iterations
+- Each criterion is independently scoreable (+N points)
+
+All modes write `autoresearch.md` (living doc) and `autoresearch.jsonl` (experiment log).
 
 ### Phase 2 — Main loop
 
@@ -111,10 +138,11 @@ Read context (autoresearch.md + last 10 runs)
         │
         ▼
     Apply the change
+    (edit code / search web / edit doc)
         │
         ▼
-  bash autoresearch.sh
-  extract METRIC value
+  Score / benchmark
+  (run script OR evaluate against rubric)
         │
         ▼
   Improved? ──Yes──▶  git commit  ──▶  log "kept"
@@ -134,14 +162,22 @@ Read context (autoresearch.md + last 10 runs)
 
 ### Stopping automatically
 
-The loop stops itself when any of these are true:
-- **Goal met** — numeric target in the goal (e.g. "above 80%") is reached
+The loop stops when any of these are true:
+- **Goal met** — numeric target reached (e.g. "above 80%", "score 8+")
 - **Converged** — no improvement in 5 consecutive runs
 - **Backlog exhausted** — all ideas tried
 
-### Phase 3 — Resume
+### Skills integration
 
-If `autoresearch.md` already exists when you invoke the skill, it resumes from where it left off — restoring context from the log and continuing with the next untried idea.
+If other skills are installed (e.g. [pm-skills](https://github.com/phuryn/pm-skills)),
+autoresearch invokes them rather than reinventing the wheel:
+
+- `competitor-analysis` → used in research mode to generate v1 artifact
+- `user-personas` → used in docs mode to enrich a persona draft
+- `customer-journey-map` → used in docs mode for journey map iterations
+- `investigate` → used in engineering mode when root cause of a regression is unclear
+
+The loop handles the iteration and scoring. The skills handle the specialized work within each iteration.
 
 ---
 
@@ -150,54 +186,51 @@ If `autoresearch.md` already exists when you invoke the skill, it resumes from w
 Every run is appended to `autoresearch.jsonl`:
 
 ```jsonl
-{"run": 0, "commit": null, "metric": 37.23, "delta": 0, "status": "baseline", "description": "Coverage baseline. 198 failing suites (MUI mock missing).", "timestamp": "2026-04-16T00:00:00Z"}
-{"run": 1, "commit": "a3f9c12", "metric": 64.16, "delta": 26.93, "status": "kept", "description": "Added moduleNameMapper for @mui/material. 2660 → 3793 passing tests.", "timestamp": "2026-04-16T01:00:00Z"}
-{"run": 2, "commit": null, "metric": 64.16, "delta": 0, "status": "reverted", "description": "Tried barrel export consolidation. No coverage gain.", "timestamp": "2026-04-16T02:00:00Z"}
+{"run": 0, "commit": null, "metric": 3, "delta": 0, "status": "baseline", "description": "V1 competitive brief. 4 competitors, no pricing, no reviews. Rubric 3/10.", "timestamp": "2026-04-21T09:00:00Z"}
+{"run": 1, "commit": "c1d2e3f", "metric": 5, "delta": 2, "status": "kept", "description": "Added pricing for all competitors, found 5th. Score 5/10.", "timestamp": "2026-04-21T09:15:00Z"}
+{"run": 2, "commit": null, "metric": 5, "delta": 0, "status": "reverted", "description": "Added G2 quotes — no score gain. Reverted.", "timestamp": "2026-04-21T09:30:00Z"}
 ```
 
-`kept` = committed. `reverted` = undone. Both are logged. The history is the value.
+`kept` = committed. `reverted` = undone. Both logged. The history is the value.
 
 ---
 
-## Safety model
+## Session files
 
-- **Always reverts on regression.** `git checkout -- <files>` runs immediately if the metric doesn't improve. The repo is never left in a broken state.
-- **Never modifies `autoresearch.sh`.** The benchmark is stable across all runs.
-- **One change per iteration.** Never batches multiple ideas.
-- **Only touches files in scope.** Anything out of scope is noted as a dead end, not silently skipped.
-- **Infers, doesn't guess.** Reads CI config and build files before doing anything. Uses `AskUserQuestion` only when something is genuinely ambiguous after reading the repo.
+Written to your working directory. Add to `.gitignore` to keep them out of your repo commits (the skill repo's `.gitignore` already ignores them by default).
+
+| File | Purpose |
+|------|---------|
+| `autoresearch.md` | Living doc — goal, mode, metric/rubric, ideas backlog, history, dead ends |
+| `autoresearch.sh` | Benchmark script (engineering mode). Outputs `METRIC name=value`. Never modified by the agent. |
+| `autoresearch.jsonl` | Append-only experiment log. Survives restarts. |
+| `autoresearch.checks.sh` | *(optional)* Safety checks — blocks `keep` if they fail |
 
 ---
 
 ## Optional: safety checks
 
-Create `autoresearch.checks.sh` in your repo root to add a backpressure gate — runs after each passing benchmark, blocks `keep` if it fails:
+Create `autoresearch.checks.sh` to add a backpressure gate:
 
 ```bash
 #!/bin/bash
-# autoresearch.checks.sh — runs after each improvement
-# If this exits non-zero, the change is reverted even if the metric improved
-
+# runs after each passing benchmark — blocks keep if it fails
 yarn lint --quiet || exit 1
 yarn tsc --noEmit || exit 1
 ```
 
-The agent will never modify this file.
-
 ---
 
-## Rules the agent follows
+## Examples
 
-1. **One change per iteration.** Never batch.
-2. **Never modify `autoresearch.sh`.** Benchmark stability is non-negotiable.
-3. **Always revert on regression.** Never leave the repo dirty.
-4. **Only edit files in scope.** Out-of-scope = dead end note, not a skip.
-5. **Log everything** — kept and reverted. History is the value.
-6. **Infer, don't ask.** Read CI config and build files first.
-7. **CI config is ground truth.** Use the command the team actually runs.
-8. **Ideas must be grounded.** Every backlog item references a specific file and property found by reading the repo.
-9. **Fix one test at a time** in failing-tests mode.
-10. **Confidence is advisory.** Never stop an improving loop because of low confidence — report it.
+| Example | Mode | Baseline → Best |
+|---------|------|-----------------|
+| `examples/android-build-time/` | Engineering | 247s → 171s build time |
+| `examples/jest-coverage/` | Engineering | 38.4% → 80.5% coverage |
+| `examples/rspec-coverage/` | Engineering | 61.2% → 76.4% coverage |
+| `examples/stryker-mutation/` | Engineering | 57.6% → 85.25% mutation score |
+| `examples/competitor-research/` | Research | Rubric 3/10 → 8/10 |
+| `examples/persona-iteration/` | Docs | Rubric 2/10 → 8/10 |
 
 ---
 
@@ -205,6 +238,7 @@ The agent will never modify this file.
 
 - [Claude Code](https://claude.ai/code)
 - `git` in `$PATH`
+- For research mode: web access (Claude Code's `WebFetch`/`WebSearch` tools)
 
 ---
 
