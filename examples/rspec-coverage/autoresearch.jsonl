@@ -1,0 +1,3 @@
+{"run": 0, "commit": null, "metric": 61.2, "delta": 0, "status": "baseline", "description": "RSpec SimpleCov baseline on app/services/. 38 service files, 14 with 0% coverage.", "timestamp": "2026-04-20T10:00:00Z"}
+{"run": 1, "commit": "f1e2d3c", "metric": 69.8, "delta": 8.6, "status": "kept", "description": "Added spec/services/invoice_calculator_spec.rb — pure calculations, 0% → 100% on 72 lines.", "timestamp": "2026-04-20T10:15:00Z"}
+{"run": 2, "commit": "a4b5c6d", "metric": 76.4, "delta": 6.6, "status": "kept", "description": "Added spec/services/tax_rate_service_spec.rb — fixture-based, covers 4 tax calculation paths.", "timestamp": "2026-04-20T10:30:00Z"}
