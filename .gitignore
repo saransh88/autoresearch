@@ -1,0 +1,14 @@
+# autoresearch session files — these belong in your project, not committed here
+autoresearch.jsonl
+autoresearch.md
+autoresearch.sh
+autoresearch.checks.sh
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

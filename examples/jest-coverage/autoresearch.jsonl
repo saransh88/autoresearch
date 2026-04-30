@@ -1,0 +1,6 @@
+{"run": 0, "commit": null, "metric": 38.4, "delta": 0, "status": "baseline", "description": "Jest statement coverage baseline. 312 passing tests across 41 suites.", "timestamp": "2026-04-10T10:00:00Z"}
+{"run": 1, "commit": "f1a2b3c", "metric": 52.1, "delta": 13.7, "status": "kept", "description": "Added tests/modules/auth/reducer.test.js covering login, logout, token refresh reducers. 34 new tests.", "timestamp": "2026-04-10T10:12:00Z"}
+{"run": 2, "commit": "d4e5f6a", "metric": 61.8, "delta": 9.7, "status": "kept", "description": "Added tests/helpers/formatCurrency.test.js — pure function, 0% → 100% on 89 statements.", "timestamp": "2026-04-10T10:24:00Z"}
+{"run": 3, "commit": null, "metric": 61.8, "delta": 0, "status": "reverted", "description": "Tried adding component render tests for PaymentForm. Blocked by missing MSW mock setup — no coverage gain.", "timestamp": "2026-04-10T10:36:00Z"}
+{"run": 4, "commit": "b7c8d9e", "metric": 71.2, "delta": 9.4, "status": "kept", "description": "Added tests/modules/payments/thunks.test.js — 8 thunks, success/error/network paths. 22 new tests.", "timestamp": "2026-04-10T10:48:00Z"}
+{"run": 5, "commit": "a1b2c3d", "metric": 80.5, "delta": 9.3, "status": "kept", "description": "Added tests for 4 remaining helper files with 0% coverage. Pure functions, no mocks needed.", "timestamp": "2026-04-10T11:00:00Z"}

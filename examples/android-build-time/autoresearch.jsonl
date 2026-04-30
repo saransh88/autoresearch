@@ -1,0 +1,3 @@
+{"run": 0, "commit": null, "metric": 247000, "delta": 0, "status": "baseline", "description": "Gradle assembleDebug baseline. No caching, parallel=false, jvmargs default.", "timestamp": "2026-04-01T09:00:00Z"}
+{"run": 1, "commit": "b2e4f81", "metric": 198000, "delta": 49000, "status": "kept", "description": "Added org.gradle.caching=true to gradle.properties. Build cache populated on second run.", "timestamp": "2026-04-01T09:08:00Z"}
+{"run": 2, "commit": "c3a9d12", "metric": 171000, "delta": 27000, "status": "kept", "description": "Added org.gradle.parallel=true. Multi-module builds now run in parallel.", "timestamp": "2026-04-01T09:16:00Z"}
